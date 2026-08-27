@@ -8,6 +8,8 @@ import (
 	"github.com/joho/godotenv"
 
 	"github.com/rajandhamala/goRedis/internal"
+
+	_ "github.com/rajandhamala/goRedis/worker"
 )
 
 func main() {
@@ -28,6 +30,8 @@ func main() {
 		fmt.Println("error while listing for TCP req", err)
 	}
 	fmt.Println("TCP server is listening on port:", PORT)
+
+	// go worker.FLushExpiredKeys()
 
 	for {
 		conn, err := listener.Accept()
