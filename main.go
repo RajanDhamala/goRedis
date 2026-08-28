@@ -9,7 +9,9 @@ import (
 
 	"github.com/rajandhamala/goRedis/internal"
 
-	_ "github.com/rajandhamala/goRedis/worker"
+	"github.com/rajandhamala/goRedis/worker"
+
+	"github.com/rajandhamala/goRedis/snapshot"
 )
 
 func main() {
@@ -31,7 +33,8 @@ func main() {
 	}
 	fmt.Println("TCP server is listening on port:", PORT)
 
-	// go worker.FLushExpiredKeys()
+	go worker.FLushExpiredKeys()
+	go snapshot.AofWoker()
 
 	for {
 		conn, err := listener.Accept()

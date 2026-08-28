@@ -1,16 +1,34 @@
 package worker
 
 import (
-	"fmt"
 	"time"
+
+	"github.com/rajandhamala/goRedis/src"
 )
 
 // for deleting expired keys
-func FLushExpiredKeys() {
-	newticker := time.NewTicker(time.Second * 2)
-	defer newticker.Stop()
+// currenly highly unscalable due to looping over all keys and checking expiry & mutex locks
+// later we will introduce more efficent way of invalidaing expired keys
 
-	for tickTime := range newticker.C {
-		fmt.Println("ticker just ticked", tickTime)
+func FLushExpiredKeys() {
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+
+	for tickTime := range ticker.C {
+
+		src.Mu.Lock()
+
+		for key, val := range src.ActiveKeys {
+
+			if val.TTL.IsZero() {
+				continue
+			}
+
+			if tickTime.After(val.TTL) {
+				delete(src.ActiveKeys, key)
+			}
+		}
+
+		src.Mu.Unlock()
 	}
 }
