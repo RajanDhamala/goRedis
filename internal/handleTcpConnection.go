@@ -4,11 +4,8 @@ import (
 	"bufio"
 	"fmt"
 	"net"
-	"strings"
 
 	"github.com/rajandhamala/goRedis/helpers"
-
-	"github.com/rajandhamala/goRedis/snapshot"
 )
 
 func HandleConnection(conn net.Conn) {
@@ -31,9 +28,6 @@ func HandleConnection(conn net.Conn) {
 			fmt.Println("no command found")
 			_, _ = conn.Write([]byte("no command found\n"))
 		}
-
-		data := []byte(strings.Join(msg, " ") + "\n")
-		snapshot.AofChan <- data
 
 		HandleMethods(msg, conn)
 	}
