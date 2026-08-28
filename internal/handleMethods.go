@@ -4,8 +4,16 @@ import (
 	"net"
 	"strings"
 
+	"github.com/rajandhamala/goRedis/snapshot"
 	"github.com/rajandhamala/goRedis/src"
 )
+
+type Subscriber struct {
+	Conn net.Conn
+	Send chan []byte
+}
+
+var ActiveSubscribers = make(map[string]map[*Subscriber]struct{})
 
 func HandleMethods(msg []string, conn net.Conn) {
 	length := len(msg)
@@ -38,6 +46,8 @@ func HandleMethods(msg []string, conn net.Conn) {
 			_, _ = conn.Write([]byte("usage: SET key value ttl\n"))
 			return
 		}
+		data := []byte(strings.Join(msg, " ") + "\n")
+		snapshot.AofChan <- data
 
 		_, err := src.AddKey(msg[1], msg[2], msg[3])
 		if err != nil {
@@ -52,6 +62,8 @@ func HandleMethods(msg []string, conn net.Conn) {
 			_, _ = conn.Write([]byte("usage: DEL key\n"))
 			return
 		}
+		data := []byte(strings.Join(msg, " ") + "\n")
+		snapshot.AofChan <- data
 
 		_, err := src.DelKey(msg[1])
 		if err != nil {
@@ -60,6 +72,27 @@ func HandleMethods(msg []string, conn net.Conn) {
 		}
 
 		_, _ = conn.Write([]byte("Key deleted successfully\n"))
+
+	case "PUBLISH":
+		resp, err := src.PublishEvent(msg)
+		if err != nil {
+			_, _ = conn.Write([]byte("failed to publish event"))
+		}
+		_, _ = conn.Write([]byte(resp))
+
+	case "SUBSCRIBE":
+		resp, err := src.SubscribeEvent(msg, conn)
+		if err != nil {
+			_, _ = conn.Write([]byte("failed to subscribe event"))
+		}
+		_, _ = conn.Write([]byte(resp))
+
+	case "UNSUBSCRIBE":
+		resp, err := src.UnsubscribeEvent(msg)
+		if err != nil {
+			_, _ = conn.Write([]byte("failed to unsubscribe event"))
+		}
+		_, _ = conn.Write([]byte(resp))
 
 	default:
 		_, _ = conn.Write([]byte("Unsupported method\n"))

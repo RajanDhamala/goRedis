@@ -33,6 +33,7 @@ func main() {
 	}
 	fmt.Println("TCP server is listening on port:", PORT)
 
+	snapshot.PlayAofShapshot()
 	go worker.FLushExpiredKeys()
 	go snapshot.AofWoker()
 
