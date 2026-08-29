@@ -15,15 +15,25 @@ func PublishEvent(msg []string) (string, error) {
 	data := msg[2]
 	// no checks during testing
 
-	// get client on channel
+	// get clients on channel
+	// allow read only
+	SubMu.RLock()
 	resp, ok := ActiveSubscribers[name]
 	if !ok {
 		fmt.Println("no one found on the channel")
+		SubMu.RUnlock()
 		return "", errors.New("no one found on the channel")
 	}
+
+	clients := make([]*Client, 0, len(resp))
+	for client := range resp {
+		clients = append(clients, client)
+	}
+	SubMu.RUnlock()
+
 	payload := []byte(name + " " + data + "\n")
-	for clients := range resp {
-		clients.Send <- payload
+	for _, user := range clients {
+		user.Send <- payload
 	}
 	return "Event Published Succesfully\n", nil
 }

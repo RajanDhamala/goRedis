@@ -13,14 +13,17 @@ type Entry struct {
 	TTL   time.Time `json:"ttl"`
 }
 
-type Subscriber struct {
-	Conn net.Conn
-	Send chan []byte
+type Client struct {
+	Conn          net.Conn
+	Send          chan []byte
+	Subscriptions map[string]struct{}
+	Mu            sync.Mutex
 }
 
 var (
 	ActiveKeys = make(map[string]*Entry)
-	Mu         sync.RWMutex
+	KeyMu      sync.RWMutex
 
-	ActiveSubscribers = make(map[string]map[*Subscriber]struct{})
+	ActiveSubscribers = make(map[string]map[*Client]struct{})
+	SubMu             sync.RWMutex
 )

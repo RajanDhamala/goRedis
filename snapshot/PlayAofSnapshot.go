@@ -15,7 +15,7 @@ func PlayAofShapshot() {
 	file, err := os.Open("appendonly.aof")
 	if err != nil {
 		fmt.Println("error while opening file")
-		panic(err)
+		return
 	}
 
 	defer file.Close()
@@ -33,6 +33,7 @@ func PlayAofShapshot() {
 	fmt.Println("Redis prev snapshot achieved")
 	if err := scanner.Err(); err != nil {
 		fmt.Println("error reading AOF:", err)
+		return
 	}
 }
 

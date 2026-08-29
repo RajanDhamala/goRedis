@@ -16,7 +16,7 @@ func FLushExpiredKeys() {
 
 	for tickTime := range ticker.C {
 
-		src.Mu.Lock()
+		src.KeyMu.Lock()
 
 		for key, val := range src.ActiveKeys {
 
@@ -29,6 +29,6 @@ func FLushExpiredKeys() {
 			}
 		}
 
-		src.Mu.Unlock()
+		src.KeyMu.Unlock()
 	}
 }

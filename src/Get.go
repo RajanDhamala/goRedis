@@ -6,9 +6,9 @@ import (
 )
 
 func GetKey(key string) (string, error) {
-	Mu.RLock()
+	KeyMu.RLock()
 	resp, ok := ActiveKeys[key]
-	Mu.RUnlock()
+	KeyMu.RUnlock()
 
 	if !ok {
 		return "", errors.New("key not found")
