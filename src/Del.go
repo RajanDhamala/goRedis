@@ -5,8 +5,8 @@ import (
 )
 
 func DelKey(key string) (string, error) {
-	Mu.Lock()
-	defer Mu.Unlock()
+	KeyMu.Lock()
+	defer KeyMu.Unlock()
 
 	_, exists := ActiveKeys[key]
 	if !exists {

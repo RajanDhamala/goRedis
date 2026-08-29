@@ -30,6 +30,7 @@ func main() {
 	listener, err := net.Listen("tcp", ":"+PORT)
 	if err != nil {
 		fmt.Println("error while listing for TCP req", err)
+		panic("error while listining on TCP Port")
 	}
 	fmt.Println("TCP server is listening on port:", PORT)
 

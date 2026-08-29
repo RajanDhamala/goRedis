@@ -19,9 +19,9 @@ func AddKey(key string, value string, ttl string) (string, error) {
 		time.Duration(ttlok) * time.Second,
 	)
 
-	Mu.Lock()
+	KeyMu.Lock()
 	ActiveKeys[key] = &data
-	Mu.Unlock()
+	KeyMu.Unlock()
 
 	return "key set successfully", nil
 }

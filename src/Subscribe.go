@@ -1,33 +1,28 @@
 package src
 
-import (
-	"fmt"
-	"net"
-)
-
-func SubscribeEvent(msg []string, conn net.Conn) (string, error) {
+func SubscribeEvent(msg []string, client *Client) (string, error) {
 	name := msg[1]
 
-	fmt.Println("channel name:", name)
-	userchannel := make(chan []byte, 50)
-	user := Subscriber{
-		Conn: conn,
-		Send: userchannel,
+	client.Mu.Lock()
+
+	if client.Subscriptions == nil {
+		client.Subscriptions = make(map[string]struct{})
 	}
-	if _, ok := ActiveSubscribers[name]; !ok {
-		ActiveSubscribers[name] = make(map[*Subscriber]struct{})
+	client.Subscriptions[name] = struct{}{}
+
+	client.Mu.Unlock()
+
+	SubMu.Lock()
+
+	subs, ok := ActiveSubscribers[name]
+	if !ok {
+		subs = make(map[*Client]struct{})
+		ActiveSubscribers[name] = subs
 	}
 
-	ActiveSubscribers[name][&user] = struct{}{}
+	subs[client] = struct{}{}
 
-	_, _ = conn.Write([]byte("Subscribed to Channel Successfully\n"))
+	SubMu.Unlock()
 
-	go func() {
-		for data := range userchannel {
-			fmt.Println("we got message on user channel btw", data)
-			_, _ = conn.Write(data)
-		}
-	}()
-	// we can just close channel to stop writer goRoutine
 	return "Event Subscribed Successfully\n", nil
 }

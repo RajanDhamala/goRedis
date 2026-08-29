@@ -1,25 +1,19 @@
 package internal
 
 import (
-	"net"
 	"strings"
 
 	"github.com/rajandhamala/goRedis/snapshot"
 	"github.com/rajandhamala/goRedis/src"
 )
 
-type Subscriber struct {
-	Conn net.Conn
-	Send chan []byte
-}
+var ActiveSubscribers = make(map[string]map[*src.Client]struct{})
 
-var ActiveSubscribers = make(map[string]map[*Subscriber]struct{})
-
-func HandleMethods(msg []string, conn net.Conn) {
+func HandleMethods(msg []string, client *src.Client) {
 	length := len(msg)
 
 	if length < 1 {
-		_, _ = conn.Write([]byte("no command found\n"))
+		client.Send <- []byte("no command found\n")
 		return
 	}
 
@@ -29,21 +23,20 @@ func HandleMethods(msg []string, conn net.Conn) {
 
 	case "GET":
 		if length != 2 {
-			_, _ = conn.Write([]byte("usage: GET key\n"))
+			client.Send <- []byte("usage: GET key\n")
 			return
 		}
 
 		data, err := src.GetKey(msg[1])
 		if err != nil {
-			_, _ = conn.Write([]byte(err.Error() + "\n"))
+			client.Send <- []byte(err.Error() + "\n")
 			return
 		}
-
-		_, _ = conn.Write([]byte(data + "\n"))
+		client.Send <- []byte(data + "\n")
 
 	case "SET":
 		if length != 4 {
-			_, _ = conn.Write([]byte("usage: SET key value ttl\n"))
+			client.Send <- []byte("usage: SET key value ttl\n")
 			return
 		}
 		data := []byte(strings.Join(msg, " ") + "\n")
@@ -51,15 +44,14 @@ func HandleMethods(msg []string, conn net.Conn) {
 
 		_, err := src.AddKey(msg[1], msg[2], msg[3])
 		if err != nil {
-			_, _ = conn.Write([]byte(err.Error() + "\n"))
+			client.Send <- []byte(err.Error() + "\n")
 			return
 		}
-
-		_, _ = conn.Write([]byte("Key added successfully\n"))
+		client.Send <- []byte("Key added successfully\n")
 
 	case "DEL":
 		if length != 2 {
-			_, _ = conn.Write([]byte("usage: DEL key\n"))
+			client.Send <- []byte("usage: DEL key\n")
 			return
 		}
 		data := []byte(strings.Join(msg, " ") + "\n")
@@ -67,34 +59,38 @@ func HandleMethods(msg []string, conn net.Conn) {
 
 		_, err := src.DelKey(msg[1])
 		if err != nil {
-			_, _ = conn.Write([]byte(err.Error() + "\n"))
+
+			client.Send <- []byte(err.Error() + "\n")
 			return
 		}
 
-		_, _ = conn.Write([]byte("Key deleted successfully\n"))
+		client.Send <- []byte("Key deleted successfully\n")
 
 	case "PUBLISH":
 		resp, err := src.PublishEvent(msg)
 		if err != nil {
-			_, _ = conn.Write([]byte("failed to publish event"))
+			client.Send <- []byte("failed to publish event \n")
 		}
-		_, _ = conn.Write([]byte(resp))
+
+		client.Send <- []byte(resp)
 
 	case "SUBSCRIBE":
-		resp, err := src.SubscribeEvent(msg, conn)
+		resp, err := src.SubscribeEvent(msg, client)
 		if err != nil {
-			_, _ = conn.Write([]byte("failed to subscribe event"))
+			client.Send <- []byte("failed to subscribe event \n")
 		}
-		_, _ = conn.Write([]byte(resp))
+
+		client.Send <- []byte(resp)
 
 	case "UNSUBSCRIBE":
-		resp, err := src.UnsubscribeEvent(msg)
+		resp, err := src.UnsubscribeEvent(msg, client)
 		if err != nil {
-			_, _ = conn.Write([]byte("failed to unsubscribe event"))
+			client.Send <- []byte("failed to unsubscribe event")
 		}
-		_, _ = conn.Write([]byte(resp))
+
+		client.Send <- []byte(resp)
 
 	default:
-		_, _ = conn.Write([]byte("Unsupported method\n"))
+		client.Send <- []byte("Unsupported method\n")
 	}
 }
