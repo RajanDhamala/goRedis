@@ -1,6 +1,7 @@
 package internal
 
 import (
+	"strconv"
 	"strings"
 
 	"github.com/rajandhamala/goRedis/snapshot"
@@ -86,6 +87,41 @@ func HandleMethods(msg []string, client *src.Client) {
 		resp, err := src.UnsubscribeEvent(msg, client)
 		if err != nil {
 			client.Send <- []byte("failed to unsubscribe event")
+		}
+
+		client.Send <- []byte(resp)
+
+	case "EXISTS":
+		resp, err := src.CheckKeyExistance(msg, client)
+		if err != nil {
+			client.Send <- []byte("key not found")
+		}
+		if resp {
+			client.Send <- []byte("1")
+		} else {
+			client.Send <- []byte("0")
+		}
+
+	case "TTL":
+		resp, err := src.CheckTTL(msg, client)
+		if err != nil {
+			client.Send <- []byte("failed to updae TTL")
+		}
+
+		client.Send <- []byte(strconv.FormatInt(resp, 10))
+
+	case "EXPIRE":
+		resp, err := src.ExpireKey(msg, client)
+		if err != nil {
+			client.Send <- []byte("failed to expire key")
+		}
+
+		client.Send <- []byte(resp)
+
+	case "INFO":
+		resp, err := src.GetRuntimeInfo(msg, client)
+		if err != nil {
+			client.Send <- []byte("failed to retrive server info")
 		}
 
 		client.Send <- []byte(resp)
