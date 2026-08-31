@@ -126,6 +126,102 @@ func HandleMethods(msg []string, client *src.Client) {
 
 		client.Send <- []byte(resp)
 
+	case "HSET":
+		resp, err := src.HSET(msg)
+		if err != nil {
+			client.Send <- []byte("failed to create set")
+		}
+
+		client.Send <- []byte(resp)
+
+	case "HDEL":
+		resp, err := src.HDEL(msg)
+		if err != nil {
+			client.Send <- []byte("failed delete item from set")
+		}
+
+		client.Send <- []byte(resp)
+
+	case "HLEN":
+		resp, err := src.HLEN(msg)
+		if err != nil {
+			client.Send <- []byte("failed to retrive length")
+		}
+
+		client.Send <- []byte(strconv.Itoa(resp))
+
+	case "HEXISTS":
+		resp, err := src.HEXISTS(msg)
+		if err != nil {
+			client.Send <- []byte("failed to check existance")
+		}
+
+		if resp {
+			client.Send <- []byte("true")
+		} else {
+			client.Send <- []byte("false")
+		}
+
+	// could have used sprintf also
+	// formatted := fmt.Sprintf("%t", resp)
+	// client.Send <- []byte(formatted)
+
+	case "HGETALL":
+		resp, err := src.HGETALL(msg)
+		if err != nil {
+			client.Send <- []byte("failed to retrive items")
+		}
+
+		client.Send <- []byte(strings.Join(resp, " "))
+
+	case "SADD":
+		resp, err := src.SADD(msg)
+		if err != nil {
+			client.Send <- []byte("failed to retrive items")
+		}
+
+		client.Send <- []byte(resp)
+
+	case "SREM":
+		resp, err := src.SREM(msg)
+		if err != nil {
+			client.Send <- []byte("failed to retrive items")
+		}
+
+		if resp {
+			client.Send <- []byte("true")
+		} else {
+			client.Send <- []byte("false")
+		}
+
+	case "SISMEMBER":
+		resp, err := src.SISMEMBER(msg)
+		if err != nil {
+			client.Send <- []byte("failed to retrive items")
+		}
+
+		if resp {
+			client.Send <- []byte("true")
+		} else {
+			client.Send <- []byte("false")
+		}
+
+	case "SMEMBERS":
+		resp, err := src.SMEMBERS(msg)
+		if err != nil {
+			client.Send <- []byte("failed to retrive items")
+		}
+
+		client.Send <- []byte(strings.Join(resp, " "))
+
+	case "SCARD":
+		resp, err := src.SCARD(msg)
+		if err != nil {
+			client.Send <- []byte("failed to retrive items")
+		}
+
+		client.Send <- []byte(strconv.Itoa(resp))
+
 	default:
 		client.Send <- []byte("Unsupported method\n")
 	}
