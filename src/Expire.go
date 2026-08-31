@@ -7,7 +7,6 @@ import (
 )
 
 func ExpireKey(msg []string, client *Client) (string, error) {
-	KeyMu.Lock()
 	key := msg[1]
 	seconds, err := strconv.Atoi(msg[2])
 	if err != nil {
@@ -16,6 +15,7 @@ func ExpireKey(msg []string, client *Client) (string, error) {
 
 	expiry := time.Now().Add(time.Duration(seconds) * time.Second)
 
+	KeyMu.Lock()
 	defer KeyMu.Unlock()
 
 	result, ok := ActiveKeys[key]
