@@ -67,6 +67,25 @@ func HandleMethods(msg []string, client *src.Client) {
 
 		client.Send <- []byte("Key deleted successfully\n")
 
+	case "INCR":
+		resp, err := src.Incr(msg)
+		if err != nil {
+
+			client.Send <- []byte(err.Error() + "\n")
+			return
+		}
+
+		client.Send <- []byte(strconv.Itoa(resp))
+
+	case "DECR":
+		resp, err := src.Decr(msg)
+		if err != nil {
+
+			client.Send <- []byte(err.Error() + "\n")
+			return
+		}
+		client.Send <- []byte(strconv.Itoa(resp))
+
 	case "PUBLISH":
 		resp, err := src.PublishEvent(msg)
 		if err != nil {
@@ -177,7 +196,7 @@ func HandleMethods(msg []string, client *src.Client) {
 	case "SADD":
 		resp, err := src.SADD(msg)
 		if err != nil {
-			client.Send <- []byte("failed to retrive items")
+			client.Send <- []byte("failed to remove member")
 		}
 
 		client.Send <- []byte(resp)
@@ -197,7 +216,7 @@ func HandleMethods(msg []string, client *src.Client) {
 	case "SISMEMBER":
 		resp, err := src.SISMEMBER(msg)
 		if err != nil {
-			client.Send <- []byte("failed to retrive items")
+			client.Send <- []byte("failed to retrive set member")
 		}
 
 		if resp {
@@ -209,7 +228,7 @@ func HandleMethods(msg []string, client *src.Client) {
 	case "SMEMBERS":
 		resp, err := src.SMEMBERS(msg)
 		if err != nil {
-			client.Send <- []byte("failed to retrive items")
+			client.Send <- []byte("failed to retrive members")
 		}
 
 		client.Send <- []byte(strings.Join(resp, " "))
@@ -217,7 +236,54 @@ func HandleMethods(msg []string, client *src.Client) {
 	case "SCARD":
 		resp, err := src.SCARD(msg)
 		if err != nil {
-			client.Send <- []byte("failed to retrive items")
+			client.Send <- []byte("failed to retrive length of members")
+		}
+
+		client.Send <- []byte(strconv.Itoa(resp))
+
+	case "LPUSH":
+		resp, err := src.LPUSH(msg)
+		if err != nil {
+			client.Send <- []byte("failed to LPUSH")
+		}
+
+		client.Send <- []byte(resp)
+
+	case "RPUSH":
+		resp, err := src.RPUSH(msg)
+		if err != nil {
+			client.Send <- []byte("failed to RPUSH")
+		}
+
+		client.Send <- []byte(resp)
+
+	case "LPOP":
+		resp, err := src.LPOP(msg)
+		if err != nil {
+			client.Send <- []byte("failed to LROP")
+		}
+
+		client.Send <- []byte(resp)
+
+	case "RPOP":
+		resp, err := src.RPOP(msg)
+		if err != nil {
+			client.Send <- []byte("failed to RPOP")
+		}
+
+		client.Send <- []byte(resp)
+
+	case "LRANGE":
+		resp, err := src.LRANGE(msg)
+		if err != nil {
+			client.Send <- []byte("failed to retrive range of items")
+		}
+		client.Send <- []byte(strings.Join(resp, " "))
+
+	case "LLEN":
+		resp, err := src.LLEN(msg)
+		if err != nil {
+			client.Send <- []byte("failed to length")
 		}
 
 		client.Send <- []byte(strconv.Itoa(resp))
