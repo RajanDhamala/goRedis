@@ -36,56 +36,79 @@ func ZADD(msg []string) (string, error) {
 			Next:   nil,
 			Skip:   nil,
 		}
-		GlobalZset[key] = &newNode
 		// always pointing to head when adding retriivng other we traverse via skip list to improve perforamnce
 		GlobalZset[key] = &newNode
 		return "zset init succesfuly", nil
 	}
 
 	// for now lets just do level 1 only
-	newNode := ZNode{
+	NewNode := ZNode{
 		Score:  intscore,
 		Member: member,
 		Next:   nil,
 		Skip:   nil,
 	}
 	currentNode := data
-	prevNode := data
+	PrevNode := data
 	for currentNode != nil {
 		if intscore > currentNode.Score {
-			// meaning we need to traverse more node ok but before traversing we will check with the next node data
-			prevNode = currentNode
+			// new score is greater so keep moving
+			// current node so traverse more
+			PrevNode = currentNode
 			currentNode = currentNode.Next
+			continue
 		} else if intscore == currentNode.Score {
-			// meaning we has already reached the threesold point btw
+			// equal score so can postion anywhere near adjsent neighbour node with same score
 			temp := currentNode.Next
-			currentNode.Next = &newNode
-			newNode.Next = temp
+			currentNode.Next = &NewNode
+			NewNode.Next = temp
 			break
 		} else if intscore < currentNode.Score {
-			// need to traverse back and insert may be do -1 and insert try?
-			// but since its singly linked list we cant traverse back can use one preNode pointer that will be updated as we vist node but seems overkill
+			// score is lesser than teh current node so as its a singly linked list we cant traverse backwards btw
+			// we can use temp intermediate point to handel this case
+			// two cases:
+			// 1. currentNode is the head
+			// 2. currentNode is somewhere in the middle
 
-			// prevNode.Next = &newNode
-
-			if currentNode == data {
-				// meaning we are start
-				newNode.Next = currentNode
-				GlobalZset[key] = &newNode
+			// case 1
+			if data == currentNode {
+				// indicated that we are at inital point
+				NewNode.Next = currentNode
+				GlobalZset[key] = &NewNode
 			} else {
-				prevNode.Next = &newNode
-				newNode.Next = currentNode
+				// case 2
+				NewNode.Next = currentNode
+				PrevNode.Next = &NewNode
 			}
-
-			break
-		}
-		if currentNode == nil {
-			prevNode.Next = &newNode
 			break
 		}
 	}
 
+	if currentNode == nil {
+		PrevNode.Next = &NewNode
+	}
+
 	return "zset add succesfuly", nil
+}
+
+func TraverseZset(msg []string) (string, error) {
+	key := msg[1]
+
+	data, ok := GlobalZset[key]
+
+	if !ok {
+		return "", errors.New("invalid key")
+	}
+
+	currentNode := data
+
+	fmt.Println("")
+	for currentNode != nil {
+		fmt.Print(currentNode.Member, "->")
+		currentNode = currentNode.Next
+	}
+
+	return "", nil
 }
 
 // ZSCORE leaderboard alice

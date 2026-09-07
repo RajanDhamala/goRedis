@@ -304,6 +304,14 @@ func HandleMethods(msg []string, client *src.Client) {
 
 		client.Send <- []byte(resp + "\n")
 
+	case "TEST":
+		resp, err := src.TraverseZset(msg)
+		if err != nil {
+			client.Send <- []byte("failed to travel set\n")
+		}
+
+		client.Send <- []byte(resp + "\n")
+
 	default:
 		client.Send <- []byte("Unsupported method\n")
 	}
