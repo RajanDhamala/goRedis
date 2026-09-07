@@ -13,6 +13,8 @@ type HashStruct struct {
 
 var GlobalHash = make(map[string]*HashStruct)
 
+// note to add HICR
+
 // hash Fetures
 
 // #HSET Key Field Value
@@ -111,6 +113,8 @@ func HGETALL(msg []string) ([]string, error) {
 
 	temp := []string{}
 
+	// # HINCR update the value by converitng to int if fails skip cause we store all data as string rn
+
 	if !ok {
 		return temp, errors.New("hash not found ")
 	}
@@ -123,6 +127,20 @@ func HGETALL(msg []string) ([]string, error) {
 
 // # HLEN Key to find the length of item in hash
 func HLEN(msg []string) (int, error) {
+	key := msg[1]
+
+	data, ok := GlobalHash[key]
+
+	if !ok {
+		return 0, errors.New("Hash not found")
+	}
+	length := len(data.data)
+
+	return length, nil
+}
+
+// # HINCR update the value by converitng to int if fails skip cause we store all data as string rn
+func HICR(msg []string) (int, error) {
 	key := msg[1]
 
 	data, ok := GlobalHash[key]

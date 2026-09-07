@@ -156,7 +156,7 @@ func HandleMethods(msg []string, client *src.Client) {
 	case "HDEL":
 		resp, err := src.HDEL(msg)
 		if err != nil {
-			client.Send <- []byte("failed delete item from set")
+			client.Send <- []byte("failed delete item from set \n")
 		}
 
 		client.Send <- []byte(resp)
@@ -164,7 +164,7 @@ func HandleMethods(msg []string, client *src.Client) {
 	case "HLEN":
 		resp, err := src.HLEN(msg)
 		if err != nil {
-			client.Send <- []byte("failed to retrive length")
+			client.Send <- []byte("failed to retrive length \n")
 		}
 
 		client.Send <- []byte(strconv.Itoa(resp))
@@ -196,7 +196,7 @@ func HandleMethods(msg []string, client *src.Client) {
 	case "SADD":
 		resp, err := src.SADD(msg)
 		if err != nil {
-			client.Send <- []byte("failed to remove member")
+			client.Send <- []byte("failed to retrive items \n")
 		}
 
 		client.Send <- []byte(resp)
@@ -204,7 +204,7 @@ func HandleMethods(msg []string, client *src.Client) {
 	case "SREM":
 		resp, err := src.SREM(msg)
 		if err != nil {
-			client.Send <- []byte("failed to retrive items")
+			client.Send <- []byte("failed to retrive items \n")
 		}
 
 		if resp {
@@ -216,7 +216,7 @@ func HandleMethods(msg []string, client *src.Client) {
 	case "SISMEMBER":
 		resp, err := src.SISMEMBER(msg)
 		if err != nil {
-			client.Send <- []byte("failed to retrive set member")
+			client.Send <- []byte("failed to retrive items \n")
 		}
 
 		if resp {
@@ -228,7 +228,7 @@ func HandleMethods(msg []string, client *src.Client) {
 	case "SMEMBERS":
 		resp, err := src.SMEMBERS(msg)
 		if err != nil {
-			client.Send <- []byte("failed to retrive members")
+			client.Send <- []byte("failed to retrive items\n")
 		}
 
 		client.Send <- []byte(strings.Join(resp, " "))
@@ -283,10 +283,26 @@ func HandleMethods(msg []string, client *src.Client) {
 	case "LLEN":
 		resp, err := src.LLEN(msg)
 		if err != nil {
-			client.Send <- []byte("failed to length")
+			client.Send <- []byte("failed to retrive items\n")
 		}
 
 		client.Send <- []byte(strconv.Itoa(resp))
+
+	case "ZADD":
+		resp, err := src.ZADD(msg)
+		if err != nil {
+			client.Send <- []byte("failed to retrive items\n")
+		}
+
+		client.Send <- []byte(resp + "\n")
+
+	case "ZSCORE":
+		resp, err := src.ZSCORE(msg)
+		if err != nil {
+			client.Send <- []byte("failed to retrive items\n")
+		}
+
+		client.Send <- []byte(resp + "\n")
 
 	default:
 		client.Send <- []byte("Unsupported method\n")
