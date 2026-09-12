@@ -11,12 +11,12 @@ type ZNode struct {
 	Member string
 
 	Next *ZNode
-	Skip *ZNode
+	Skip [4]*ZNode
 }
 
 var GlobalZset = make(map[string]*ZNode)
 
-// ZADD key score member
+// ZADD vel 0 = normal linked listkey score member
 func ZADD(msg []string) (string, error) {
 	key := msg[1]
 	member := msg[3]
@@ -34,7 +34,6 @@ func ZADD(msg []string) (string, error) {
 			Score:  intscore,
 			Member: member,
 			Next:   nil,
-			Skip:   nil,
 		}
 		// always pointing to head when adding retriivng other we traverse via skip list to improve perforamnce
 		GlobalZset[key] = &newNode
@@ -46,7 +45,6 @@ func ZADD(msg []string) (string, error) {
 		Score:  intscore,
 		Member: member,
 		Next:   nil,
-		Skip:   nil,
 	}
 	currentNode := data
 	PrevNode := data
