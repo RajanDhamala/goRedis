@@ -7,8 +7,8 @@ import (
 
 func GetKey(key string) (string, error) {
 	KeyMu.RLock()
+	defer KeyMu.RUnlock()
 	resp, ok := ActiveKeys[key]
-	KeyMu.RUnlock()
 
 	if !ok {
 		return "", errors.New("key not found")

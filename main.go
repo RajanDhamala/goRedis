@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"net"
 	"os"
 
@@ -20,19 +21,27 @@ func main() {
 		fmt.Println("Error loading .env file")
 	}
 
+	server, err := internal.NewServer(os.Getenv("REDIS_PASSWORD"))
+	if err != nil {
+		log.Fatal(err)
+	}
+	host := os.Getenv("HOST")
+	if host == "" {
+		host = "127.0.0.1"
+	}
+
 	PORT := os.Getenv("PORT")
 
 	if PORT == "" {
-		fmt.Println("Missing PORT no")
-		return
+		PORT = "6379"
 	}
 
-	listener, err := net.Listen("tcp", ":"+PORT)
+	listener, err := net.Listen("tcp", net.JoinHostPort(host, PORT))
 	if err != nil {
 		fmt.Println("error while listing for TCP req", err)
 		panic("error while listining on TCP Port")
 	}
-	fmt.Println("TCP server is listening on port:", PORT)
+	fmt.Println("TCP server is listening on:", listener.Addr())
 
 	snapshot.PlayAofShapshot()
 	go worker.FLushExpiredKeys()
@@ -42,7 +51,8 @@ func main() {
 		conn, err := listener.Accept()
 		if err != nil {
 			fmt.Println("error while accepting req", err)
+			continue
 		}
-		go internal.HandleConnection(conn)
+		go server.HandleConnection(conn)
 	}
 }

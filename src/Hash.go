@@ -4,7 +4,6 @@ package src
 
 import (
 	"errors"
-	"fmt"
 )
 
 type HashStruct struct {
@@ -24,30 +23,22 @@ var GlobalHash = make(map[string]*HashStruct)
 // # HGETALL Key -> get all key value from hash
 // # HEXITS Key Field -> check if the field exist in hash
 
-// mutex locks will be added later for the concurrency safety
-// curenntly the (data structure)/ds needs to work on devlopment later we can optmize & secure it.
+// The command dispatcher holds CommandMu while accessing this collection.
 
-func HSET(msg []string) (string, error) {
-	fmt.Println("inseting item on stack btw")
-	Rootkey := msg[1]
-	key := msg[2]
-	value := msg[3]
-
-	_, ok := GlobalHash[Rootkey]
-
-	if !ok {
-		fmt.Println("hash map not found btw")
-		// creating new hash as its not found on global hash serch
-		temphash := make(map[string]string)
-		data := HashStruct{
-			temphash,
-		}
-		GlobalHash[Rootkey] = &data
-		data.data[key] = value
-		return "new hash map created succesfully", nil
+func HSET(msg []string) (int, error) {
+	key := msg[1]
+	if GlobalHash[key] == nil {
+		GlobalHash[key] = &HashStruct{data: make(map[string]string)}
 	}
-
-	return "key value inserted succesfully", nil
+	hash := GlobalHash[key].data
+	added := 0
+	for i := 2; i < len(msg); i += 2 {
+		if _, exists := hash[msg[i]]; !exists {
+			added++
+		}
+		hash[msg[i]] = msg[i+1]
+	}
+	return added, nil
 }
 
 func HGET(msg []string) (string, error) {
@@ -89,22 +80,22 @@ func HEXISTS(msg []string) (bool, error) {
 	return true, nil
 }
 
-func HDEL(msg []string) (string, error) {
-	key := msg[1]
-
-	field := msg[2]
-
-	data, ok := GlobalHash[key]
-
-	if !ok {
-		// meaning the hash not exist yet
-		return "", errors.New("hash doesn't exist")
+func HDEL(msg []string) (int, error) {
+	hash := GlobalHash[msg[1]]
+	if hash == nil {
+		return 0, nil
 	}
-	// not even cheking if the filed exist or not direct del
-	// cause why check if exist or not as del does no-op when key is absent
-	// think of it as tiny optimizaion preserve one req per del req
-	delete(data.data, field)
-	return "", nil
+	removed := 0
+	for _, field := range msg[2:] {
+		if _, ok := hash.data[field]; ok {
+			delete(hash.data, field)
+			removed++
+		}
+	}
+	if len(hash.data) == 0 {
+		delete(GlobalHash, msg[1])
+	}
+	return removed, nil
 }
 
 func HGETALL(msg []string) ([]string, error) {

@@ -4,14 +4,13 @@ package src
 
 import (
 	"errors"
-	"fmt"
 )
 
 type Set struct {
 	Data map[string]struct{}
 }
 
-// no locks rn will add later for concurrency safety
+// The command dispatcher holds CommandMu while accessing this collection.
 
 var GobalSet = make(map[string]*Set)
 
@@ -24,43 +23,37 @@ var GobalSet = make(map[string]*Set)
 //
 
 // # SADD Key Member -> add members could be array of members
-func SADD(msg []string) (string, error) {
+func SADD(msg []string) (int, error) {
 	key := msg[1]
-	member := msg[2]
-
-	fmt.Println("create set called", key)
-	_, ok := GobalSet[key]
-
-	if !ok {
-		// meaning we dont have have key in global set  later will check ttl if expired or not
-		// and hadnel accordingly rn just create new set
-		hashmap := make(map[string]struct{})
-		temp := Set{
-			Data: hashmap,
-		}
-		hashmap[member] = struct{}{}
-		GobalSet[key] = &temp
-		// create new map and then just store it in global set with key added  and its value as struct{}
-		return "new set created", nil
+	if GobalSet[key] == nil {
+		GobalSet[key] = &Set{Data: make(map[string]struct{})}
 	}
-
-	return "item added to set", nil
+	added := 0
+	for _, member := range msg[2:] {
+		if _, ok := GobalSet[key].Data[member]; !ok {
+			GobalSet[key].Data[member] = struct{}{}
+			added++
+		}
+	}
+	return added, nil
 }
 
-// # SREM Key Member -> remove members could be array of members
-func SREM(msg []string) (bool, error) {
-	// rn remove one member later mentioned members msg.lengh >1 are all members
-
-	key := msg[1]
-	member := msg[1]
-
-	data, ok := GobalSet[key]
-	if !ok {
-		return false, errors.New("set not found")
+func SREM(msg []string) (int, error) {
+	set := GobalSet[msg[1]]
+	if set == nil {
+		return 0, nil
 	}
-
-	delete(data.Data, member)
-	return true, nil
+	removed := 0
+	for _, member := range msg[2:] {
+		if _, ok := set.Data[member]; ok {
+			delete(set.Data, member)
+			removed++
+		}
+	}
+	if len(set.Data) == 0 {
+		delete(GobalSet, msg[1])
+	}
+	return removed, nil
 }
 
 // # SISMEMBER Key Member -> chek if  member exist

@@ -3,69 +3,107 @@ package snapshot
 import (
 	"bufio"
 	"fmt"
+	"io"
 	"os"
+	"strconv"
 	"strings"
+	"time"
 
+	"github.com/rajandhamala/goRedis/helpers"
 	"github.com/rajandhamala/goRedis/src"
 )
 
 func PlayAofShapshot() {
-	fmt.Println("Playing shapshots from disk")
-
 	file, err := os.Open("appendonly.aof")
+	if os.IsNotExist(err) {
+		return
+	}
 	if err != nil {
-		fmt.Println("error while opening file")
+		fmt.Println("error opening AOF:", err)
 		return
 	}
-
 	defer file.Close()
-	scanner := bufio.NewScanner(file)
-
-	for scanner.Scan() {
-		msg := scanner.Text()
-		final := strings.Fields(msg)
-
-		if len(msg) == 0 {
-			continue
-		}
-		ExecAofLog(final)
+	if err := Replay(file); err != nil {
+		fmt.Println("error replaying AOF:", err)
 	}
-	fmt.Println("Redis prev snapshot achieved")
-	if err := scanner.Err(); err != nil {
-		fmt.Println("error reading AOF:", err)
-		return
+}
+
+// Read both new binary-safe RESP records and the prototype's legacy inline records.
+func Replay(input io.Reader) error {
+	reader := bufio.NewReader(input)
+	for {
+		msg, err := helpers.ReadCommand(reader)
+		if err == io.EOF {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if err := replayCommand(msg); err != nil {
+			return err
+		}
 	}
 }
 
 func ExecAofLog(msg []string) {
-	method := strings.ToUpper(msg[0])
-	if method == "GET" {
-		// no need to play the get comamnd we wont even log it for safely checking during devleopment
-		return
+	if err := replayCommand(msg); err != nil {
+		fmt.Println("error replaying AOF command:", err)
 	}
+}
 
-	switch method {
-
+func replayCommand(msg []string) error {
+	if len(msg) == 0 {
+		return nil
+	}
+	switch strings.ToUpper(msg[0]) {
 	case "SET":
-		if len(msg) < 4 {
-			fmt.Println("invalid SET entry in AOF:", msg)
-			return
+		if len(msg) == 4 { // Legacy: SET key value relative-ttl
+			_, err := src.AddKey(msg[1], msg[2], msg[3])
+			return err
 		}
-
-		_, err := src.AddKey(msg[1], msg[2], msg[3])
-		if err != nil {
-			fmt.Println("failed to replay SET:", err)
+		var expiry time.Time
+		if len(msg) == 5 && strings.EqualFold(msg[3], "PXAT") {
+			millis, err := strconv.ParseInt(msg[4], 10, 64)
+			if err != nil {
+				return err
+			}
+			expiry = time.UnixMilli(millis)
+		} else if len(msg) != 3 {
+			return fmt.Errorf("invalid SET entry")
 		}
-
+		src.SetValue(msg[1], msg[2], expiry)
+		if !expiry.IsZero() && !time.Now().Before(expiry) {
+			src.DeleteKey(msg[1])
+		}
 	case "DEL":
 		if len(msg) < 2 {
-			fmt.Println("invalid DEL entry in AOF:", msg)
-			return
+			return fmt.Errorf("invalid DEL entry")
 		}
-
-		_, err := src.DelKey(msg[1])
-		if err != nil {
-			fmt.Println("failed to replay DEL:", err)
+		for _, key := range msg[1:] {
+			src.DeleteKey(key)
 		}
+	case "GET": // Old development logs may contain reads.
+	default:
+		return fmt.Errorf("unsupported AOF command %q", msg[0])
 	}
+	return nil
+}
+
+// Call while holding src.CommandMu so mutation and log order agree.
+// The prototype persists string values; collections remain in-memory only.
+func RecordString(key string) {
+	if src.KeyType(key) != "string" {
+		AofChan <- helpers.Strings([]string{"DEL", key})
+		return
+	}
+	value, err := src.GetKey(key)
+	if err != nil {
+		AofChan <- helpers.Strings([]string{"DEL", key})
+		return
+	}
+	args := []string{"SET", key, value}
+	if expiry := src.Expiry(key); !expiry.IsZero() {
+		args = append(args, "PXAT", strconv.FormatInt(expiry.UnixMilli(), 10))
+	}
+	AofChan <- helpers.Strings(args)
 }

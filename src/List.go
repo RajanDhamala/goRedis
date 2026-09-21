@@ -18,7 +18,7 @@ type List struct {
 	Len  int
 }
 
-// no mutex locks and validation rn will add later
+// The command dispatcher validates arguments and holds CommandMu.
 
 var GlobalList = make(map[string]*List)
 
@@ -173,6 +173,15 @@ func LRANGE(msg []string) ([]string, error) {
 
 	if !ok {
 		return nil, errors.New("list not found")
+	}
+	if start < 0 {
+		start += data.Len
+	}
+	if end < 0 {
+		end += data.Len
+	}
+	if start < 0 {
+		start = 0
 	}
 	current := data.Head
 	index := 0
