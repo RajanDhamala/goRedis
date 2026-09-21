@@ -7,7 +7,12 @@ import (
 func CheckTTL(msg []string, client *Client) (int64, error) {
 	key := msg[1]
 	KeyMu.RLock()
-	data, ok := ActiveKeys[key]
+	entry, ok := ActiveKeys[key]
+	var copy Entry
+	if ok {
+		copy = *entry
+	}
+	data := &copy
 	KeyMu.RUnlock()
 
 	if !ok {

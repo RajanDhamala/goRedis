@@ -2,151 +2,68 @@ package src
 
 import (
 	"errors"
-	"fmt"
+	"math"
 	"strconv"
+	"strings"
 )
 
 type ZNode struct {
-	Score  int
+	Score  float64
 	Member string
-
-	Next *ZNode
-	Skip [4]*ZNode
+	Next   *ZNode
+	Skip   [4]*ZNode
 }
 
 var GlobalZset = make(map[string]*ZNode)
 
-// ZADD vel 0 = normal linked listkey score member
-func ZADD(msg []string) (string, error) {
-	key := msg[1]
-	member := msg[3]
-
-	intscore, err := strconv.Atoi(msg[2])
-	if err != nil {
-		fmt.Println("error while parsing score")
-		return "", errors.New("error while parsing score")
-	}
-
-	data, ok := GlobalZset[key]
-	if !ok {
-		fmt.Println("key not found init the zset now")
-		newNode := ZNode{
-			Score:  intscore,
-			Member: member,
-			Next:   nil,
+// Keep the prototype linked-list representation; updates remove and reinsert a member.
+func ZADD(msg []string) (int, error) {
+	scores := make([]float64, (len(msg)-2)/2)
+	for i := range scores {
+		score, err := strconv.ParseFloat(msg[2+i*2], 64)
+		if err != nil || math.IsNaN(score) {
+			return 0, errors.New("value is not a valid float")
 		}
-		// always pointing to head when adding retriivng other we traverse via skip list to improve perforamnce
-		GlobalZset[key] = &newNode
-		return "zset init succesfuly", nil
+		scores[i] = score
 	}
-
-	// for now lets just do level 1 only
-	NewNode := ZNode{
-		Score:  intscore,
-		Member: member,
-		Next:   nil,
-	}
-	currentNode := data
-	PrevNode := data
-	for currentNode != nil {
-		if intscore > currentNode.Score {
-			// new score is greater so keep moving
-			// current node so traverse more
-			PrevNode = currentNode
-			currentNode = currentNode.Next
-			continue
-		} else if intscore == currentNode.Score {
-			// equal score so can postion anywhere near adjsent neighbour node with same score
-			temp := currentNode.Next
-			currentNode.Next = &NewNode
-			NewNode.Next = temp
-			break
-		} else if intscore < currentNode.Score {
-			// score is lesser than teh current node so as its a singly linked list we cant traverse backwards btw
-			// we can use temp intermediate point to handel this case
-			// two cases:
-			// 1. currentNode is the head
-			// 2. currentNode is somewhere in the middle
-
-			// case 1
-			if data == currentNode {
-				// indicated that we are at inital point
-				NewNode.Next = currentNode
-				GlobalZset[key] = &NewNode
-			} else {
-				// case 2
-				NewNode.Next = currentNode
-				PrevNode.Next = &NewNode
+	added := 0
+	for i, score := range scores {
+		key, member := msg[1], msg[3+i*2]
+		head := GlobalZset[key]
+		link := &head
+		found := false
+		for *link != nil {
+			if (*link).Member == member {
+				*link = (*link).Next
+				found = true
+				break
 			}
-			break
+			link = &(*link).Next
 		}
+		if !found {
+			added++
+		}
+		link = &head
+		for *link != nil && ((*link).Score < score || ((*link).Score == score && (*link).Member < member)) {
+			link = &(*link).Next
+		}
+		*link = &ZNode{Score: score, Member: member, Next: *link}
+		GlobalZset[key] = head
 	}
-
-	if currentNode == nil {
-		PrevNode.Next = &NewNode
-	}
-
-	return "zset add succesfuly", nil
+	return added, nil
 }
-
-func TraverseZset(msg []string) (string, error) {
-	key := msg[1]
-
-	data, ok := GlobalZset[key]
-
-	if !ok {
-		return "", errors.New("invalid key")
-	}
-
-	currentNode := data
-
-	fmt.Println("")
-	for currentNode != nil {
-		fmt.Print(currentNode.Member, "->")
-		currentNode = currentNode.Next
-	}
-
-	return "", nil
-}
-
-// ZSCORE leaderboard alice
-
 func ZSCORE(msg []string) (string, error) {
-	key := msg[1]
-	member := msg[2]
-
-	data, ok := GlobalZset[key]
-
-	if !ok {
-		fmt.Println("member not found in map")
-		return "", errors.New("member not found")
-	}
-
-	currentNode := data
-	Intial := data
-
-	for currentNode != nil {
-		if currentNode.Member == member {
-			strscore := strconv.Itoa(currentNode.Score)
-			Printtraversal(Intial, currentNode)
-			return strscore, nil
+	for node := GlobalZset[msg[1]]; node != nil; node = node.Next {
+		if node.Member == msg[2] {
+			return strconv.FormatFloat(node.Score, 'g', -1, 64), nil
 		}
-		currentNode = currentNode.Next
 	}
-
-	return "member not found", nil
+	return "", errors.New("member not found")
 }
-
-func Printtraversal(inital *ZNode, final *ZNode) {
-	currentNode := inital
-
-	fmt.Println("")
-	for currentNode != nil {
-		if currentNode.Member == final.Member {
-			fmt.Print(currentNode.Member)
-			return
-		}
-		fmt.Print(currentNode.Member + "->")
-		currentNode = currentNode.Next
+func TraverseZset(msg []string) (string, error) {
+	var members []string
+	for node := GlobalZset[msg[1]]; node != nil; node = node.Next {
+		members = append(members, node.Member)
 	}
+	return strings.Join(members, "->"), nil
 }

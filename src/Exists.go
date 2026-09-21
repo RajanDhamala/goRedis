@@ -10,8 +10,8 @@ func CheckKeyExistance(msg []string, client *Client) (bool, error) {
 	key := msg[1]
 	// no validation during testing
 	KeyMu.RLock()
+	defer KeyMu.RUnlock()
 	resp, ok := ActiveKeys[key]
-	KeyMu.RUnlock()
 
 	if !ok {
 		return false, errors.New("key not found")

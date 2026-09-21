@@ -2,73 +2,51 @@ package src
 
 import (
 	"errors"
+	"math"
 	"strconv"
+	"strings"
+	"time"
 )
 
-func Incr(msg []string) (int, error) {
-	key := msg[1]
+func Incr(msg []string) (int64, error) { return changeCounter(msg[1], 1, false) }
+func Decr(msg []string) (int64, error) { return changeCounter(msg[1], 1, true) }
 
-	length := len(msg)
-	value := 1
-
-	if length >= 3 {
-		temp, err := strconv.Atoi(msg[2])
-		if err != nil {
-			return 0, errors.New("unable to incr value")
-		}
-		value = temp
+func CounterBy(msg []string) (int64, error) {
+	delta, err := strconv.ParseInt(msg[2], 10, 64)
+	if err != nil {
+		return 0, errors.New("value is not an integer or out of range")
 	}
-
-	KeyMu.Lock()
-
-	defer KeyMu.Unlock()
-	data, ok := ActiveKeys[key]
-
-	if !ok {
-		return 0, errors.New("key not found")
-	}
-
-	intvalue, errr := strconv.Atoi(data.Value)
-
-	if errr != nil {
-		return 0, errors.New("failed to parse value")
-	}
-	intvalue += value
-
-	data.Value = strconv.Itoa(intvalue)
-	return intvalue, nil
+	return changeCounter(msg[1], delta, strings.EqualFold(msg[0], "DECRBY"))
 }
 
-func Decr(msg []string) (int, error) {
-	key := msg[1]
-
-	length := len(msg)
-	value := 1
-
-	if length >= 3 {
-		temp, err := strconv.Atoi(msg[2])
-		if err != nil {
-			return 0, errors.New("unable to decr value")
-		}
-		value = temp
-	}
-
+func changeCounter(key string, delta int64, subtract bool) (int64, error) {
 	KeyMu.Lock()
-
 	defer KeyMu.Unlock()
-	data, ok := ActiveKeys[key]
-
+	entry, ok := ActiveKeys[key]
+	if ok && !entry.TTL.IsZero() && !time.Now().Before(entry.TTL) {
+		delete(ActiveKeys, key)
+		ok = false
+	}
 	if !ok {
-		return 0, errors.New("key not found")
+		entry = &Entry{Value: "0"}
 	}
-
-	intvalue, err := strconv.Atoi(data.Value)
+	value, err := strconv.ParseInt(entry.Value, 10, 64)
 	if err != nil {
-		return 0, errors.New("failed to parse counter")
+		return 0, errors.New("value is not an integer or out of range")
+	}
+	if subtract {
+		if (delta > 0 && value < math.MinInt64+delta) || (delta < 0 && value > math.MaxInt64+delta) {
+			return 0, errors.New("increment or decrement would overflow")
+		}
+		value -= delta
+	} else {
+		if (delta > 0 && value > math.MaxInt64-delta) || (delta < 0 && value < math.MinInt64-delta) {
+			return 0, errors.New("increment or decrement would overflow")
+		}
+		value += delta
 	}
 
-	intvalue -= value
-	data.Value = strconv.Itoa(intvalue)
-
-	return intvalue, nil
+	entry.Value = strconv.FormatInt(value, 10)
+	ActiveKeys[key] = entry
+	return value, nil
 }

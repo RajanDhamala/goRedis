@@ -18,7 +18,15 @@ type Client struct {
 	Send          chan []byte
 	Subscriptions map[string]struct{}
 	Mu            sync.Mutex
+	Done          chan struct{}
+	Closed        bool
+	Name          string
+	ID            int64
+	Authenticated bool
 }
+
+// CommandMu serializes prototype command execution, including collection access and AOF ordering.
+var CommandMu sync.Mutex
 
 var (
 	ActiveKeys = make(map[string]*Entry)

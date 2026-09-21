@@ -2,66 +2,62 @@ package internal
 
 import (
 	"bufio"
-	"fmt"
+	"io"
 	"net"
+	"strings"
+	"time"
 
 	"github.com/rajandhamala/goRedis/helpers"
-
 	"github.com/rajandhamala/goRedis/src"
 )
 
-func HandleConnection(conn net.Conn) {
-	client := src.Client{
-		Conn: conn,
-		Send: make(chan []byte, 100),
-	}
-
+func (s *Server) HandleConnection(conn net.Conn) {
+	client := src.NewClient(conn)
+	defer client.Disconnect()
 	go func() {
-		for msg := range client.Send {
-			_, err := client.Conn.Write(msg)
-			if err != nil {
+		defer client.Disconnect()
+		for {
+			select {
+			case <-client.Done:
 				return
+			case msg := <-client.Send:
+				if msg == nil {
+					return
+				} // Drain preceding replies before QUIT/EOF.
+				_ = conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+				for len(msg) > 0 {
+					n, err := conn.Write(msg)
+					if err != nil || n == 0 {
+						return
+					}
+					msg = msg[n:]
+				}
 			}
 		}
 	}()
-	defer func() {
-		conn.Close()
-
-		client.Mu.Lock()
-
-		for name := range client.Subscriptions {
-			src.SubMu.Lock()
-
-			if subscribers, ok := src.ActiveSubscribers[name]; ok {
-				delete(subscribers, &client)
-			}
-
-			src.SubMu.Unlock()
-		}
-
-		client.Mu.Unlock()
-
-		close(client.Send)
-	}()
-
-	fmt.Println("client conncected", conn.RemoteAddr())
-	_, _ = conn.Write([]byte("hello from server\n"))
-
+	finish := func() { client.TrySend(nil); <-client.Done }
 	reader := bufio.NewReader(conn)
 	for {
 		msg, err := helpers.ReadCommand(reader)
 		if err != nil {
-			fmt.Println("error wile reading buffer", err)
+			if err != io.EOF {
+				client.TrySend(helpers.Error("ERR Protocol error: " + err.Error()))
+			}
+			finish()
 			return
 		}
-
-		length := len(msg)
-
-		if length == 0 {
-			fmt.Println("no command found")
-			_, _ = conn.Write([]byte("no command found\n"))
+		if len(msg) == 0 {
+			continue
 		}
-
-		HandleMethods(msg, &client)
+		s.HandleMethods(msg, client)
+		if strings.EqualFold(msg[0], "QUIT") && len(msg) == 1 {
+			finish()
+			return
+		}
+		select {
+		case <-client.Done:
+			return
+		default:
+		}
 	}
 }
