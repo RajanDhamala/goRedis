@@ -10,7 +10,7 @@ import (
 	"github.com/rajandhamala/goRedis/src"
 )
 
-func setCommand(msg []string) []byte {
+func setCommand(msg []string, journal *snapshot.Recorder) []byte {
 	var expiry time.Time
 	nx, xx, get, keep, hasExpiry := false, false, false, false, false
 	for i := 3; i < len(msg); i++ {
@@ -78,7 +78,7 @@ func setCommand(msg []string) []byte {
 		expiry = src.Expiry(msg[1])
 	}
 	src.SetValue(msg[1], msg[2], expiry)
-	snapshot.RecordString(msg[1])
+	journal.String(msg[1])
 	if get {
 		return old
 	}

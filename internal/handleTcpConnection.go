@@ -13,7 +13,12 @@ import (
 
 func (s *Server) HandleConnection(conn net.Conn) {
 	client := src.NewClient(conn)
-	defer client.Disconnect()
+	defer func() {
+		client.Disconnect()
+		src.CommandMu.Lock()
+		client.Transaction = nil
+		src.CommandMu.Unlock()
+	}()
 	go func() {
 		defer client.Disconnect()
 		for {
