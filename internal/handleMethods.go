@@ -14,7 +14,7 @@ import (
 
 // Negative maximum means variadic. Validate before any handler indexes arguments.
 var commandArity = map[string][2]int{
-	"AUTH": {2, 3}, "PING": {1, 2}, "ECHO": {2, 2}, "QUIT": {1, 1}, "HELLO": {1, -1}, "CLIENT": {2, -1}, "SELECT": {2, 2},
+	"MULTI": {1, 1}, "EXEC": {1, 1}, "DISCARD": {1, 1}, "AUTH": {2, 3}, "PING": {1, 2}, "ECHO": {2, 2}, "QUIT": {1, 1}, "HELLO": {1, -1}, "CLIENT": {2, -1}, "SELECT": {2, 2},
 	"GET": {2, 2}, "SET": {3, -1}, "DEL": {2, -1}, "EXISTS": {2, -1}, "TYPE": {2, 2},
 	"INCR": {2, 2}, "DECR": {2, 2}, "INCRBY": {3, 3}, "DECRBY": {3, 3}, "TTL": {2, 2}, "PTTL": {2, 2}, "EXPIRE": {3, 3}, "PEXPIRE": {3, 3},
 	"INFO": {1, 2}, "HSET": {4, -1}, "HGET": {3, 3}, "HDEL": {3, -1}, "HLEN": {2, 2}, "HEXISTS": {3, 3}, "HGETALL": {2, 2},
@@ -27,13 +27,13 @@ var commandArity = map[string][2]int{
 func (s *Server) HandleMethods(msg []string, client *src.Client) {
 	src.CommandMu.Lock()
 	defer src.CommandMu.Unlock()
-	reply := s.executeCommand(msg, client)
+	reply := s.dispatchCommand(msg, client)
 	if reply != nil {
 		client.TrySend(reply)
 	}
 }
 
-func (s *Server) executeCommand(msg []string, client *src.Client) []byte {
+func validateCommand(msg []string, client *src.Client) []byte {
 	if len(msg) == 0 {
 		return r.Error("ERR empty command")
 	}
@@ -51,6 +51,15 @@ func (s *Server) executeCommand(msg []string, client *src.Client) []byte {
 	if client.SubscriptionCount() > 0 && method != "SUBSCRIBE" && method != "UNSUBSCRIBE" && method != "PING" && method != "QUIT" {
 		return r.Error("ERR Can't execute command while subscribed")
 	}
+	return nil
+}
+
+// Called with CommandMu held; validation here does not inspect transaction state.
+func (s *Server) executeCommand(msg []string, client *src.Client, journal *snapshot.Recorder) []byte {
+	if reply := validateCommand(msg, client); reply != nil {
+		return reply
+	}
+	method := strings.ToUpper(msg[0])
 	if want := expectedType(method); want != "" {
 		kind := src.KeyType(msg[1])
 		if kind != "none" && kind != want {
@@ -96,7 +105,7 @@ func (s *Server) executeCommand(msg []string, client *src.Client) []byte {
 		}
 		return r.Bulk(value)
 	case "SET":
-		return setCommand(msg)
+		return setCommand(msg, journal)
 	case "TYPE":
 		return r.Simple(src.KeyType(msg[1]))
 	case "DEL":
@@ -107,7 +116,7 @@ func (s *Server) executeCommand(msg []string, client *src.Client) []byte {
 				removed++
 			}
 		}
-		snapshot.AofChan <- r.Strings(append([]string{"DEL"}, msg[1:]...))
+		journal.Delete(msg[1:]...)
 		return r.Integer(removed)
 	case "EXISTS":
 		var count int64
@@ -130,7 +139,7 @@ func (s *Server) executeCommand(msg []string, client *src.Client) []byte {
 		if err != nil {
 			return r.Error("ERR " + err.Error())
 		}
-		snapshot.RecordString(msg[1])
+		journal.String(msg[1])
 		return r.Integer(value)
 	case "TTL", "PTTL":
 		if src.KeyType(msg[1]) == "none" {
@@ -174,7 +183,7 @@ func (s *Server) executeCommand(msg []string, client *src.Client) []byte {
 			return r.Integer(0)
 		}
 		if kind == "string" {
-			snapshot.RecordString(msg[1])
+			journal.String(msg[1])
 		}
 		return r.Integer(1)
 	case "INFO":

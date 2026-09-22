@@ -23,6 +23,14 @@ type Client struct {
 	Name          string
 	ID            int64
 	Authenticated bool
+	Transaction   *Transaction
+}
+
+// Transaction is connection-local state protected by CommandMu.
+type Transaction struct {
+	Commands [][]string
+	Bytes    int
+	Failed   bool
 }
 
 // CommandMu serializes prototype command execution, including collection access and AOF ordering.

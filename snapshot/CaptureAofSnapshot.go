@@ -25,14 +25,20 @@ func AofWoker() {
 	for {
 		select {
 		case data := <-AofChan:
-			_, _ = writer.Write(data)
+			if _, err := writer.Write(data); err != nil {
+				log.Fatal("AOF write failed: ", err)
+			}
 
 			if writer.Buffered() >= 64*1024 {
-				_ = writer.Flush()
+				if err := writer.Flush(); err != nil {
+					log.Fatal("AOF flush failed: ", err)
+				}
 			}
 
 		case <-ticker.C:
-			_ = writer.Flush()
+			if err := writer.Flush(); err != nil {
+				log.Fatal("AOF flush failed: ", err)
+			}
 		}
 	}
 }

@@ -2,6 +2,7 @@ package snapshot
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -13,97 +14,134 @@ import (
 	"github.com/rajandhamala/goRedis/src"
 )
 
-func PlayAofShapshot() {
+var ErrIncompleteTransaction = errors.New("incomplete AOF transaction: missing EXEC; repair or restore the AOF before restarting")
+
+func PlayAofShapshot() error {
 	file, err := os.Open("appendonly.aof")
 	if os.IsNotExist(err) {
-		return
+		return nil
 	}
 	if err != nil {
-		fmt.Println("error opening AOF:", err)
-		return
+		return fmt.Errorf("opening AOF: %w", err)
 	}
 	defer file.Close()
 	if err := Replay(file); err != nil {
-		fmt.Println("error replaying AOF:", err)
+		return fmt.Errorf("replaying AOF: %w", err)
 	}
+	return nil
 }
 
-// Read both new binary-safe RESP records and the prototype's legacy inline records.
+type aofOperation struct {
+	key    string
+	value  string
+	expiry time.Time
+	remove bool
+}
+
+// Read both binary-safe RESP and legacy inline records. Transaction operations
+// are decoded and validated but never applied until a complete EXEC is present.
 func Replay(input io.Reader) error {
 	reader := bufio.NewReader(input)
+	var pending []aofOperation
+	inTransaction := false
 	for {
 		msg, err := helpers.ReadCommand(reader)
 		if err == io.EOF {
+			if inTransaction {
+				return ErrIncompleteTransaction
+			}
 			return nil
 		}
 		if err != nil {
+			return fmt.Errorf("invalid AOF record: %w", err)
+		}
+		if len(msg) == 0 {
+			continue
+		}
+		switch strings.ToUpper(msg[0]) {
+		case "MULTI":
+			if len(msg) != 1 || inTransaction {
+				return errors.New("invalid or nested MULTI in AOF")
+			}
+			inTransaction = true
+			continue
+		case "EXEC":
+			if len(msg) != 1 || !inTransaction {
+				return errors.New("invalid EXEC in AOF")
+			}
+			applyOperations(pending)
+			pending = nil
+			inTransaction = false
+			continue
+		}
+		operations, err := decodeRecord(msg)
+		if err != nil {
 			return err
 		}
-		if err := replayCommand(msg); err != nil {
-			return err
+		if inTransaction {
+			pending = append(pending, operations...)
+		} else {
+			applyOperations(operations)
 		}
 	}
 }
 
 func ExecAofLog(msg []string) {
-	if err := replayCommand(msg); err != nil {
+	operations, err := decodeRecord(msg)
+	if err != nil {
 		fmt.Println("error replaying AOF command:", err)
+		return
 	}
+	applyOperations(operations)
 }
 
-func replayCommand(msg []string) error {
+func decodeRecord(msg []string) ([]aofOperation, error) {
 	if len(msg) == 0 {
-		return nil
+		return nil, nil
 	}
 	switch strings.ToUpper(msg[0]) {
 	case "SET":
-		if len(msg) == 4 { // Legacy: SET key value relative-ttl
-			_, err := src.AddKey(msg[1], msg[2], msg[3])
-			return err
-		}
 		var expiry time.Time
-		if len(msg) == 5 && strings.EqualFold(msg[3], "PXAT") {
+		switch {
+		case len(msg) == 4: // Legacy: SET key value relative-ttl.
+			seconds, err := strconv.ParseInt(msg[3], 10, 64)
+			if err != nil || seconds > int64((1<<63-1)/time.Second) || seconds < int64((-1<<63)/time.Second) {
+				return nil, errors.New("invalid legacy SET expiration in AOF")
+			}
+			expiry = time.Now().Add(time.Duration(seconds) * time.Second)
+		case len(msg) == 5 && strings.EqualFold(msg[3], "PXAT"):
 			millis, err := strconv.ParseInt(msg[4], 10, 64)
 			if err != nil {
-				return err
+				return nil, fmt.Errorf("invalid SET expiration in AOF: %w", err)
 			}
 			expiry = time.UnixMilli(millis)
-		} else if len(msg) != 3 {
-			return fmt.Errorf("invalid SET entry")
+		case len(msg) == 3:
+		default:
+			return nil, errors.New("invalid SET entry in AOF")
 		}
-		src.SetValue(msg[1], msg[2], expiry)
-		if !expiry.IsZero() && !time.Now().Before(expiry) {
-			src.DeleteKey(msg[1])
-		}
+		return []aofOperation{{key: msg[1], value: msg[2], expiry: expiry}}, nil
 	case "DEL":
 		if len(msg) < 2 {
-			return fmt.Errorf("invalid DEL entry")
+			return nil, errors.New("invalid DEL entry in AOF")
 		}
+		operations := make([]aofOperation, 0, len(msg)-1)
 		for _, key := range msg[1:] {
-			src.DeleteKey(key)
+			operations = append(operations, aofOperation{key: key, remove: true})
 		}
-	case "GET": // Old development logs may contain reads.
+		return operations, nil
+	case "GET":
+		return nil, nil // Old development logs may contain reads.
 	default:
-		return fmt.Errorf("unsupported AOF command %q", msg[0])
+		return nil, fmt.Errorf("unsupported AOF command %q", msg[0])
 	}
-	return nil
 }
 
-// Call while holding src.CommandMu so mutation and log order agree.
-// The prototype persists string values; collections remain in-memory only.
-func RecordString(key string) {
-	if src.KeyType(key) != "string" {
-		AofChan <- helpers.Strings([]string{"DEL", key})
-		return
+func applyOperations(operations []aofOperation) {
+	for _, op := range operations {
+		if op.remove || (!op.expiry.IsZero() && !time.Now().Before(op.expiry)) {
+			src.DeleteKey(op.key)
+		} else {
+			src.SetValue(op.key, op.value, op.expiry)
+		}
 	}
-	value, err := src.GetKey(key)
-	if err != nil {
-		AofChan <- helpers.Strings([]string{"DEL", key})
-		return
-	}
-	args := []string{"SET", key, value}
-	if expiry := src.Expiry(key); !expiry.IsZero() {
-		args = append(args, "PXAT", strconv.FormatInt(expiry.UnixMilli(), 10))
-	}
-	AofChan <- helpers.Strings(args)
 }

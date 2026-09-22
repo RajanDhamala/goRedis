@@ -36,6 +36,9 @@ func main() {
 		PORT = "6379"
 	}
 
+	if err := snapshot.PlayAofShapshot(); err != nil {
+		log.Fatal(err)
+	}
 	listener, err := net.Listen("tcp", net.JoinHostPort(host, PORT))
 	if err != nil {
 		fmt.Println("error while listing for TCP req", err)
@@ -43,7 +46,6 @@ func main() {
 	}
 	fmt.Println("TCP server is listening on:", listener.Addr())
 
-	snapshot.PlayAofShapshot()
 	go worker.FLushExpiredKeys()
 	go snapshot.AofWoker()
 
