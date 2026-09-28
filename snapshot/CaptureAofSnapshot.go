@@ -19,7 +19,7 @@ func AofWoker() {
 	defer file.Close()
 	writer := bufio.NewWriterSize(file, 64*1024)
 
-	ticker := time.NewTicker(time.Second * 5)
+	ticker := time.NewTicker(time.Second * 1)
 	defer ticker.Stop()
 
 	for {
@@ -38,6 +38,9 @@ func AofWoker() {
 		case <-ticker.C:
 			if err := writer.Flush(); err != nil {
 				log.Fatal("AOF flush failed: ", err)
+			}
+			if err := file.Sync(); err != nil {
+				log.Fatal("AOF sync failed:", err)
 			}
 		}
 	}

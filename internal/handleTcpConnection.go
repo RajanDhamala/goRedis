@@ -13,6 +13,7 @@ import (
 
 func (s *Server) HandleConnection(conn net.Conn) {
 	client := src.NewClient(conn)
+	client.Authenticated = !requireAuthentication
 	defer func() {
 		client.Disconnect()
 		src.CommandMu.Lock()

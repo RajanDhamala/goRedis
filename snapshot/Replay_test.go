@@ -116,3 +116,47 @@ func TestTransactionRecorderPreservesFinalStateAndExpiration(t *testing.T) {
 		t.Fatal("deletion not restored")
 	}
 }
+
+func TestStreamReplayValidatesWholeTransaction(t *testing.T) {
+	src.CommandMu.Lock()
+	defer src.CommandMu.Unlock()
+	key := "stream-invalid-aof-test"
+	src.DeleteKey(key)
+	defer src.DeleteKey(key)
+	batch := helpers.Strings([]string{"MULTI"})
+	batch = append(batch, helpers.Strings([]string{"XADD", key, "1-0", "f", "value"})...)
+	batch = append(batch, helpers.Strings([]string{"XADD", key, "*", "f", "invalid"})...)
+	batch = append(batch, helpers.Strings([]string{"EXEC"})...)
+	if err := Replay(bytes.NewReader(batch)); err == nil {
+		t.Fatal("accepted wildcard ID in stream AOF transaction")
+	}
+	if src.KeyType(key) != "none" {
+		t.Fatal("partially applied invalid stream transaction")
+	}
+	batch = helpers.Strings([]string{"MULTI"})
+	batch = append(batch, helpers.Strings([]string{"XADD", key, "1-0", "f", "first"})...)
+	batch = append(batch, helpers.Strings([]string{"XADD", key, "1-0", "f", "duplicate"})...)
+	batch = append(batch, helpers.Strings([]string{"EXEC"})...)
+	if err := Replay(bytes.NewReader(batch)); err == nil {
+		t.Fatal("accepted non-increasing stream IDs in AOF transaction")
+	}
+	if src.KeyType(key) != "none" {
+		t.Fatal("partially applied stream transaction with duplicate ID")
+	}
+	batch = helpers.Strings([]string{"MULTI"})
+	batch = append(batch, helpers.Strings([]string{"XADD", key, "1-0", "f", "binary\x00\r\n"})...)
+	batch = append(batch, helpers.Strings([]string{"XTRIM", key, "MAXLEN", "0"})...)
+	batch = append(batch, helpers.Strings([]string{"EXEC"})...)
+	if err := Replay(bytes.NewReader(batch)); err != nil {
+		t.Fatal(err)
+	}
+	if src.KeyType(key) != "stream" {
+		t.Fatal("zero-length stream was lost during replay")
+	}
+	if count, err := src.XLEN([]string{"XLEN", key}); err != nil || count != 0 {
+		t.Fatal(count, err)
+	}
+	if _, _, err := src.XADD([]string{"XADD", key, "1-0", "f", "duplicate"}); err == nil {
+		t.Fatal("trimmed last ID was forgotten during replay")
+	}
+}

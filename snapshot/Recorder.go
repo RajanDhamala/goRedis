@@ -9,10 +9,12 @@ import (
 )
 
 // Recorder is used only while CommandMu is held. The zero value logs immediately.
-// Transactions collect changed keys, then persist their final string state once.
-// Collection persistence remains outside the prototype's current AOF support.
+// Transactions collect changed string keys until a stream operation needs an
+// ordering boundary, then persist one MULTI/EXEC batch.
+// Other collection types remain outside the prototype's AOF support.
 type Recorder struct {
 	changed map[string]struct{}
+	batch   []byte
 }
 
 func NewTransactionRecorder() *Recorder { return &Recorder{changed: make(map[string]struct{})} }
@@ -35,7 +37,16 @@ func (r *Recorder) Delete(keys ...string) {
 	AofChan <- helpers.Strings(append([]string{"DEL"}, keys...))
 }
 
-func (r *Recorder) Commit() {
+func (r *Recorder) Stream(command []string) {
+	if r.changed != nil {
+		r.flushChanged()
+		r.batch = append(r.batch, helpers.Strings(command)...)
+		return
+	}
+	AofChan <- helpers.Strings(command)
+}
+
+func (r *Recorder) flushChanged() {
 	if len(r.changed) == 0 {
 		return
 	}
@@ -44,14 +55,23 @@ func (r *Recorder) Commit() {
 		keys = append(keys, key)
 	}
 	sort.Strings(keys)
-	batch := helpers.Strings([]string{"MULTI"})
 	for _, key := range keys {
-		batch = append(batch, stringRecord(key)...)
+		r.batch = append(r.batch, stringRecord(key)...)
 	}
+	clear(r.changed)
+}
+
+func (r *Recorder) Commit() {
+	r.flushChanged()
+	if len(r.batch) == 0 {
+		return
+	}
+	batch := helpers.Strings([]string{"MULTI"})
+	batch = append(batch, r.batch...)
 	batch = append(batch, helpers.Strings([]string{"EXEC"})...)
 	// One channel item keeps the worker from interleaving records from other commands.
 	AofChan <- batch
-	clear(r.changed)
+	r.batch = nil
 }
 
 func stringRecord(key string) []byte {
