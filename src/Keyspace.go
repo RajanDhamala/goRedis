@@ -33,6 +33,12 @@ func KeyType(key string) string {
 	if _, ok := GlobalZset[key]; ok {
 		return "zset"
 	}
+	streamMu.RLock()
+	_, isStream := GlobalStream[key]
+	streamMu.RUnlock()
+	if isStream {
+		return "stream"
+	}
 	delete(collectionExpiry, key)
 	return "none"
 }
@@ -45,6 +51,9 @@ func DeleteKey(key string) {
 	delete(GobalSet, key)
 	delete(GlobalList, key)
 	delete(GlobalZset, key)
+	streamMu.Lock()
+	delete(GlobalStream, key)
+	streamMu.Unlock()
 	delete(collectionExpiry, key)
 }
 

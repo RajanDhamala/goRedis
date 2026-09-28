@@ -21,15 +21,69 @@ var commandArity = map[string][2]int{
 	"SADD": {3, -1}, "SREM": {3, -1}, "SISMEMBER": {3, 3}, "SMEMBERS": {2, 2}, "SCARD": {2, 2},
 	"LPUSH": {3, -1}, "RPUSH": {3, -1}, "LPOP": {2, 2}, "RPOP": {2, 2}, "LRANGE": {4, 4}, "LLEN": {2, 2},
 	"ZADD": {4, -1}, "ZSCORE": {3, 3}, "TEST": {2, 2},
-	"PUBLISH": {3, 3}, "SUBSCRIBE": {2, -1}, "UNSUBSCRIBE": {1, -1},
+	"PUBLISH": {3, 3}, "SUBSCRIBE": {2, -1}, "UNSUBSCRIBE": {1, -1}, "XADD": {5, -1}, "XLEN": {2, 2}, "XRANGE": {4, -1}, "XREVRANGE": {4, -1}, "XREAD": {4, -1},
+	"XDEL": {3, -1}, "XTRIM": {4, -1},
 }
 
 func (s *Server) HandleMethods(msg []string, client *src.Client) {
 	src.CommandMu.Lock()
-	defer src.CommandMu.Unlock()
+	if len(msg) != 0 && strings.EqualFold(msg[0], "XREAD") && client.Transaction == nil {
+		if spec, err := src.ParseXREAD(msg); err == nil && spec.HasBlock {
+			if reply := validateCommand(msg, client); reply != nil {
+				src.CommandMu.Unlock()
+				client.TrySend(reply)
+				return
+			}
+			for _, key := range spec.Keys {
+				if kind := src.KeyType(key); kind != "none" && kind != "stream" {
+					src.CommandMu.Unlock()
+					client.TrySend(r.Error("WRONGTYPE Operation against a key holding the wrong kind of value"))
+					return
+				}
+			}
+			src.ResolveXREAD(&spec)
+			src.CommandMu.Unlock()
+			if reply := blockingStreamRead(spec, client); reply != nil {
+				client.TrySend(reply)
+			}
+			return
+		}
+	}
 	reply := s.dispatchCommand(msg, client)
+	src.CommandMu.Unlock()
 	if reply != nil {
 		client.TrySend(reply)
+	}
+}
+
+func blockingStreamRead(spec src.XReadSpec, client *src.Client) []byte {
+	var timeout <-chan time.Time
+	if spec.Block > 0 {
+		timer := time.NewTimer(spec.Block)
+		defer timer.Stop()
+		timeout = timer.C
+	}
+	for {
+		src.CommandMu.Lock()
+		for _, key := range spec.Keys {
+			if kind := src.KeyType(key); kind != "none" && kind != "stream" {
+				src.CommandMu.Unlock()
+				return r.Error("WRONGTYPE Operation against a key holding the wrong kind of value")
+			}
+		}
+		signal := src.StreamSignal()
+		results := src.XREAD(spec)
+		src.CommandMu.Unlock()
+		if len(results) != 0 {
+			return streamReadReply(results)
+		}
+		select {
+		case <-signal:
+		case <-timeout:
+			return r.Null()
+		case <-client.Done:
+			return nil
+		}
 	}
 }
 
@@ -184,6 +238,12 @@ func (s *Server) executeCommand(msg []string, client *src.Client, journal *snaps
 		}
 		if kind == "string" {
 			journal.String(msg[1])
+		} else if kind == "stream" {
+			if amount <= 0 {
+				journal.Delete(msg[1])
+			} else {
+				journal.Stream([]string{"PEXPIREAT", msg[1], strconv.FormatInt(expiry.UnixMilli(), 10)})
+			}
 		}
 		return r.Integer(1)
 	case "INFO":
@@ -298,6 +358,72 @@ func (s *Server) executeCommand(msg []string, client *src.Client, journal *snaps
 			client.TrySend(r.Array(r.Bulk("unsubscribe"), r.Bulk(channel), r.Integer(int64(client.SubscriptionCount()))))
 		}
 		return nil
+
+	case "XADD":
+		value, record, err := src.XADD(msg)
+		if err != nil {
+			return r.Error(err.Error())
+		}
+		if record == nil {
+			return r.Null()
+		}
+		journal.Stream(record)
+		return r.Bulk(value)
+
+	case "XLEN":
+		value, err := src.XLEN(msg)
+		if err != nil {
+			return r.Error(err.Error())
+		}
+		return r.Integer(int64(value))
+
+	case "XRANGE":
+		value, err := src.XRANGE(msg)
+		if err != nil {
+			return r.Error(err.Error())
+		}
+		return streamEntriesReply(value)
+
+	case "XREVRANGE":
+		value, err := src.XREVRANGE(msg)
+		if err != nil {
+			return r.Error(err.Error())
+		}
+		return streamEntriesReply(value)
+
+	case "XREAD":
+		spec, err := src.ParseXREAD(msg)
+		if err != nil {
+			return r.Error(err.Error())
+		}
+		for _, key := range spec.Keys {
+			if kind := src.KeyType(key); kind != "none" && kind != "stream" {
+				return r.Error("WRONGTYPE Operation against a key holding the wrong kind of value")
+			}
+		}
+		src.ResolveXREAD(&spec)
+		return streamReadReply(src.XREAD(spec))
+
+	case "XDEL":
+		value, err := src.XDEL(msg)
+		if err != nil {
+			return r.Error(err.Error())
+		}
+		if value > 0 {
+			journal.Stream(msg)
+		}
+		return r.Integer(int64(value))
+
+	case "XTRIM":
+		value, err := src.XTRIM(msg)
+		if err != nil {
+			return r.Error(err.Error())
+		}
+		if value > 0 {
+			journal.Stream(msg)
+		}
+		return r.Integer(int64(value))
+
 	}
 	return r.Error("ERR unsupported command")
 }
@@ -314,6 +440,8 @@ func expectedType(method string) string {
 		return "list"
 	case "ZADD", "ZSCORE", "TEST":
 		return "zset"
+	case "XADD", "XLEN", "XRANGE", "XREVRANGE", "XDEL", "XTRIM":
+		return "stream"
 	}
 	return ""
 }
@@ -324,9 +452,29 @@ func integerResult(value int, err error) []byte {
 	}
 	return r.Integer(int64(value))
 }
+
 func boolResult(value bool) []byte {
 	if value {
 		return r.Integer(1)
 	}
 	return r.Integer(0)
+}
+
+func streamEntriesReply(entries []src.StreamEntry) []byte {
+	items := make([][]byte, 0, len(entries))
+	for _, entry := range entries {
+		items = append(items, r.Array(r.Bulk(entry.ID.String()), r.Strings(entry.Fields)))
+	}
+	return r.Array(items...)
+}
+
+func streamReadReply(results []src.StreamReadResult) []byte {
+	if len(results) == 0 {
+		return r.Null()
+	}
+	items := make([][]byte, 0, len(results))
+	for _, result := range results {
+		items = append(items, r.Array(r.Bulk(result.Key), streamEntriesReply(result.Entries)))
+	}
+	return r.Array(items...)
 }
