@@ -31,3 +31,4 @@ go.work.sum
 # .vscode/
 appendonly.aof
 server
+bin/

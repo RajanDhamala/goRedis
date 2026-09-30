@@ -10,11 +10,8 @@ import (
 	"github.com/rajandhamala/goRedis/src"
 )
 
-// Temporarily disabled for local stream testing.
-const requireAuthentication = false
+const requireAuthentication = true
 
-// Server's authentication configuration is immutable after construction.
-// Only the default user is supported; this is shared-password auth, not Redis ACLs.
 type Server struct {
 	passwordHash [sha256.Size]byte
 }
