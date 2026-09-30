@@ -4,23 +4,33 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	"errors"
+	"os"
 	"strings"
 
 	r "github.com/rajandhamala/goRedis/helpers"
 	"github.com/rajandhamala/goRedis/src"
 )
 
-const requireAuthentication = true
+var requireAuthentication = true
 
 type Server struct {
 	passwordHash [sha256.Size]byte
 }
 
 func NewServer(password string) (*Server, error) {
+	required := os.Getenv("RequireAuthentication")
+
+	if required == "" || strings.EqualFold(required, "false") {
+		requireAuthentication = false
+	}
+
 	if requireAuthentication && strings.TrimSpace(password) == "" {
 		return nil, errors.New("REDIS_PASSWORD must be set to a non-empty password")
 	}
-	return &Server{passwordHash: sha256.Sum256([]byte(password))}, nil
+
+	return &Server{
+		passwordHash: sha256.Sum256([]byte(password)),
+	}, nil
 }
 
 func (s *Server) authenticate(client *src.Client, username, password string) []byte {
