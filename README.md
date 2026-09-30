@@ -9,11 +9,10 @@ subset of Redis commands.
 
 ```bash
 export REDIS_PASSWORD='replace-with-your-password'
-go run .
+make run
 ```
 
-The server defaults to `127.0.0.1:6379`. Set `HOST` or `PORT` to change it.
-Use the same password in your client application's environment.
+
 
 ## Clients
 
@@ -84,7 +83,23 @@ client = redis.Redis(host="127.0.0.1", port=6379, protocol=2,
 client.set("greeting", "hello")
 print(client.get("greeting"))
 ```
+### Docker
+With `REDIS_PASSWORD` exported above:
 
+```bash
+make docker
+make docker-run
+```
+
+The container runs as non-root, listens on port 6379, and stores its AOF in the
+`go_redis_data` named volume at `/data`. The host port is bound to `127.0.0.1`.
+The volume survives container removal. Override `IMAGE` or `VOLUME` when needed.
+
+`make check` runs vet and race tests; `make build` produces `bin/go_redis`.
+After a successful main-branch CI run, the checked image is published to
+`ghcr.io/rajandhamala/go_redis:latest` and tagged with the commit SHA.
+CI also checks pull requests, Go vulnerabilities, container startup/authentication,
+AOF recovery, and HIGH/CRITICAL image vulnerabilities before publishing.
 ## Supported commands
 
 | Area | Commands |
@@ -98,6 +113,7 @@ print(client.get("greeting"))
 | Lists | `LPUSH`, `RPUSH`, `LPOP`, `RPOP`, `LRANGE`, `LLEN` |
 | Sorted sets | `ZADD`, `ZSCORE` |
 | Pub/sub | `SUBSCRIBE`, `UNSUBSCRIBE`, `PUBLISH` |
+| Streams | `XADD`, `XLEN`, `XRANGE`, `XREVRANGE`, `XREAD`, `XDEL`, `XTRIM` |
 | Transactions | `MULTI`, `EXEC`, `DISCARD` |
 | Server | Basic `INFO` |
 
@@ -105,9 +121,9 @@ print(client.get("greeting"))
 Transactions execute queued commands in order without other clients interrupting;
 there is no rollback or `WATCH` support.
 
-Strings are persisted in `appendonly.aof`; collections remain in memory only.
-AOF flushes every five seconds without an fsync guarantee, so recent writes can
-be lost on shutdown. Pub/sub messages are not stored for offline subscribers.
+Strings and streams are persisted in `appendonly.aof`; other collections remain
+in memory only. AOF flushes and syncs every second, so recent writes can be lost
+on shutdown. Pub/sub messages are not stored for offline subscribers.
 
 ## AI notice
 
